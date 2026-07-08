@@ -1,0 +1,15 @@
+# Ignore confidential company data
+*.xlsx
+*.xls
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+
+# macOS / Windows system files
+.DS_Store
+Thumbs.db
