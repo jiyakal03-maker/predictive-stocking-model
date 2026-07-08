@@ -149,10 +149,10 @@ if __name__ == "__main__":
     data = pd.read_csv("spend_clean.csv")
 
     print("=== Full Forecast (next 3 months) ===")
-    print(run_forecasts(data, horizon=3).to_string(index=False))
+    print(run_forecasts(data, horizon=3).head(10).to_string(index=False))
 
     print("\n=== Summary (avg monthly demand per part) ===")
     summary = forecast_summary(data)
-    print(summary.to_string(index=False))
+    print(summary.head(10).to_string(index=False))
     summary.to_csv("forecast_output.csv", index=False)
     print(f"\nSaved forecast_output.csv  ({len(summary)} rows)")

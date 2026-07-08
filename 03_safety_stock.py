@@ -1,44 +1,63 @@
 """
 03_safety_stock.py
 ------------------
-Computes safety stock for a single part.
+Computes Site Minimum (safety stock buffer) for a single part, per Epicor
+Kinetic's Site Minimum Calculator.
 
 Formula:
-    Safety Stock = Z * StdDailyDemand * sqrt(LeadTimeDays)
+    SiteMinimum = ROUNDUP( Z_abc * StdDailyDemand * sqrt(LeadTimeDays), 0 )
+
+Z is looked up by ABC code only (NOT by XYZ):
+    A -> 2.05  (98% service level)
+    B -> 1.64  (95% service level)
+    C -> 1.28  (90% service level)
+
+StdDailyDemand is the empirical std dev computed from the full zero-filled
+demand calendar when a part has enough transaction history. Parts with too
+few data points fall back to the workbook's range-based estimate:
+    Est. StdDev = (Est. Max Daily Usage - Est. Min Daily Usage) / 4
+The method actually used is recorded per part in `stddev_method`
+("empirical" or "estimated") for audit purposes.
 
 Input (part_data — dict or pd.Series):
+    ABC            : str    ABC classification code ("A", "B", "C")
     StdDailyDemand : float  standard deviation of daily demand
     LeadTimeDays   : float  replenishment lead time in calendar days
 
 Output:
-    float — safety stock quantity, rounded to 1 decimal place
+    int — Site Minimum (safety stock) quantity
 """
 
 import math
 import pandas as pd
 
-_Z_SCORES = {
-    0.90: 1.28,
-    0.95: 1.65,
-    0.98: 2.05,
-    0.99: 2.33,
+from leadtime_overrides import apply_overrides
+
+Z_FACTORS = {
+    "A": 2.05,  # 98% service level
+    "B": 1.64,  # 95% service level
+    "C": 1.28,  # 90% service level
 }
 
+# Parts with fewer distinct demand-days than this fall back to the
+# range-based estimate instead of the empirical std dev.
+MIN_OBS_FOR_EMPIRICAL_STDDEV = 5
 
-def compute_safety_stock(part_data, service_level=0.95):
-    """Return safety stock for one part given demand std dev and lead time."""
-    Z = _Z_SCORES.get(service_level)
+
+def compute_safety_stock(part_data):
+    """Return Site Minimum (safety stock) for one part given ABC code, std dev, and lead time."""
+    abc = part_data["ABC"]
+    Z = Z_FACTORS.get(abc)
     if Z is None:
-        raise ValueError(
-            f"service_level must be one of {list(_Z_SCORES.keys())}. Got {service_level}."
-        )
+        raise ValueError(f"ABC must be one of {list(Z_FACTORS.keys())}. Got {abc!r}.")
     ss = Z * part_data["StdDailyDemand"] * math.sqrt(part_data["LeadTimeDays"])
-    return round(ss, 1)
+    return math.ceil(ss)
 
 
 def build_daily_stats(df, full_range=None):
     """
-    Compute StdDailyDemand per part, correctly including zero-demand days.
+    Compute StdDailyDemand per part, correctly including zero-demand days,
+    with a fallback to the range-based estimate for low-history parts.
 
     full_range : pd.DatetimeIndex, optional
         Calendar window to reindex every part onto. If None, uses the
@@ -52,17 +71,33 @@ def build_daily_stats(df, full_range=None):
 
     rows = []
     for part_num, g in daily.groupby("PartNum"):
+        observed = g["RelQty"]
         series = g.set_index("OrderDate")["RelQty"].reindex(full_range, fill_value=0)
+
+        n_obs = len(g)
+        empirical_std = series.std()
+        estimated_std = (observed.max() - observed.min()) / 4
+
+        if n_obs >= MIN_OBS_FOR_EMPIRICAL_STDDEV and pd.notna(empirical_std):
+            std_daily = empirical_std
+            method = "empirical"
+        else:
+            std_daily = estimated_std
+            method = "estimated"
+
         rows.append({
             "PartNum": part_num,
-            "StdDailyDemand": series.std(),
+            "StdDailyDemand": std_daily,
             "MeanDailyDemand": series.mean(),  # handy for cross-checking vs forecast script
+            "stddev_method": method,
+            "TransactionDays": n_obs,
         })
     return pd.DataFrame(rows)
 
 
 if __name__ == "__main__":
     df = pd.read_csv("spend_clean.csv", parse_dates=["OrderDate"])
+    abc_lookup = pd.read_csv("abc_xyz_matrix.csv")[["PartNum", "ABC"]]
 
     daily_stats = build_daily_stats(df)
     daily_stats["StdDailyDemand"] = daily_stats["StdDailyDemand"].fillna(0)
@@ -75,13 +110,17 @@ if __name__ == "__main__":
     )
     lead_times["LeadTimeDays"] = lead_times["LeadTimeDays"].fillna(30)
 
-    result = daily_stats.merge(lead_times, on="PartNum")
-    service_level = 0.95
-    result["safety_stock"] = result.apply(
-        lambda row: compute_safety_stock(row, service_level=service_level), axis=1
+    # Apply manual corrections logged in leadtime_overrides.csv (e.g. parts
+    # whose LeadTimeDays came back 0 from Epicor because no lead time was
+    # ever entered there, not because it's genuinely a same-day part).
+    lead_times = apply_overrides(
+        lead_times, part_col="PartNum", leadtime_col="LeadTimeDays", source_col="lead_time_source"
     )
-    result["service_level"] = service_level
+
+    result = daily_stats.merge(lead_times, on="PartNum").merge(abc_lookup, on="PartNum", how="left")
+    result["safety_stock"] = result.apply(compute_safety_stock, axis=1)
 
     result.to_csv("safety_stock_output.csv", index=False)
     print(f"Saved safety_stock_output.csv  ({len(result)} rows)")
-    print(result[["PartNum", "StdDailyDemand", "MeanDailyDemand", "LeadTimeDays", "safety_stock"]].head(10).to_string(index=False))
+    print(result["stddev_method"].value_counts())
+    print(result[["PartNum", "ABC", "StdDailyDemand", "stddev_method", "LeadTimeDays", "safety_stock"]].head(10).to_string(index=False))

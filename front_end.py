@@ -6,6 +6,14 @@ import numpy as np
 import json
 import webbrowser
 from datetime import datetime
+from importlib import import_module
+
+from leadtime_overrides import apply_overrides
+
+_ss_module = import_module("03_safety_stock")
+_eoq_module = import_module("06_EOQ")
+compute_safety_stock = _ss_module.compute_safety_stock
+compute_site_max = _eoq_module.compute_site_max
 
 # ── HELPERS ──────────────────────────────────────────────
 def safe(v):
@@ -29,9 +37,45 @@ def fmt_spend(v):
     return f"${v:,.0f}"
 
 # ── DATA ─────────────────────────────────────────────────
+def recompute_corrected_rows(df):
+    """
+    For any part whose LeadTimeDays came from a manual override made in the
+    Part Lookup tool since the last full 03->07 pipeline run, recompute
+    SiteMinimum/SiteMaximum here so the dashboard reflects the correction
+    immediately, without waiting on a pipeline re-run. EOQ has no lead-time
+    term in its formula (see 06_EOQ.py), so it's left as-is.
+    """
+    mask = df["LeadTimeSource"] == "manually corrected"
+    if not mask.any():
+        return df
+
+    df = df.copy()
+
+    def recalc(row):
+        try:
+            site_min = compute_safety_stock({
+                "ABC": row["ABC"],
+                "StdDailyDemand": row["StdDevDailyDemand"] or 0,
+                "LeadTimeDays": row["LeadTimeDays"],
+            })
+        except (ValueError, TypeError):
+            return pd.Series({"SiteMinimum": row["SiteMinimum"], "SiteMaximum": row["SiteMaximum"]})
+        avg_daily = row["AvgDailyDemand"]
+        site_max = compute_site_max({
+            "eoq": row["EOQ"],
+            "annual_demand": (avg_daily or 0) * 365,
+            "SiteMinimum": site_min,
+            "avg_daily_demand": avg_daily,
+        })
+        return pd.Series({"SiteMinimum": site_min, "SiteMaximum": site_max})
+
+    df.loc[mask, ["SiteMinimum", "SiteMaximum"]] = df.loc[mask].apply(recalc, axis=1)
+    return df
+
+
 def load_data():
     df = pd.read_excel("stocking_model_output.xlsx")
-    for col in ["ForecastedDemand", "SafetyStock", "ROP", "EOQ"]:
+    for col in ["ForecastedDemand", "SiteMinimum", "EOQ", "SiteMaximum"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
@@ -41,6 +85,16 @@ def load_data():
         df = df.merge(mx, on="PartNum", how="left")
     except Exception:
         df["TotalSpend"] = np.nan
+
+    # Re-apply leadtime_overrides.csv live, on top of whatever the last full
+    # pipeline run baked into LeadTimeSource/LeadTimeDays — this is what lets
+    # a correction saved in the tool show up immediately for every future
+    # load, even before 03->07 is re-run.
+    df = apply_overrides(
+        df, part_col="PartNum", leadtime_col="LeadTimeDays",
+        source_col="LeadTimeSource", date_col="LeadTimeCorrectedDate",
+    )
+    df = recompute_corrected_rows(df)
 
     return df
 
@@ -59,9 +113,12 @@ def build_html(df):
         }
     mx_json = json.dumps(mx_data)
 
-    # Table data (all cols needed by the lookup and table)
+    # Table data (all cols needed by the lookup, table, and calculator autofill)
     keep = ["PartNum", "ABC", "XYZ", "ABCXYZ",
-            "ForecastedDemand", "SafetyStock", "ROP", "EOQ", "Policy"]
+            "ForecastedDemand", "SiteMinimum", "EOQ", "SiteMaximum", "Policy",
+            "AvgDailyDemand", "StdDevDailyDemand", "LeadTimeDays",
+            "LeadTimeSource", "LeadTimeCorrectedDate",
+            "UnitCost", "OrderingCost", "HoldingCostRatePct"]
     data_json = df_to_json(df[[c for c in keep if c in df.columns]])
 
     # Filter options
@@ -231,6 +288,22 @@ body {
   color:var(--tlt); font-size:13px; font-style:italic;
 }
 .no-result.visible { display:block; }
+
+/* ── LEAD TIME WARNING / CORRECTION ─────────── */
+.lt-warning {
+  display:none; margin:12px 16px 0; padding:10px 14px;
+  border-radius:7px; background:#F6D8D2; color:#A32D2D;
+  font-size:12.5px; font-weight:600; line-height:1.4;
+}
+.lt-warning.visible { display:block; }
+.lt-indicator { font-size:11px; color:var(--tlt); margin-left:6px; font-weight:400; font-style:italic; }
+.lt-edit-block { padding:14px 16px; border-top:1px solid var(--brdl); }
+.lt-edit-row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+.lt-edit-row .calc-field { flex:1; min-width:140px; }
+.lt-edit-row .calc-field.lt-by-field { flex:0 0 120px; }
+.lt-save-status { margin-top:8px; }
+.lt-save-status.flag-good { display:inline-block; padding:4px 10px; border-radius:6px; }
+.lt-save-status.flag-bad  { display:inline-block; padding:4px 10px; border-radius:6px; }
 
 /* ── MODE TOGGLE ────────────────────────────── */
 .mode-toggle { display:flex; gap:6px; }
@@ -458,15 +531,18 @@ function lookupPart(val) {{
   }}
 }}
 
+let currentLookupPart = null;
+
 function showResult(p) {{
+  currentLookupPart = p;
   document.getElementById("res-partnum").textContent = p.PartNum || "—";
   document.getElementById("res-class").textContent   = p.ABCXYZ  || "—";
 
   const fmtN = v => v != null ? Number(v).toLocaleString("en-US",{{minimumFractionDigits:0,maximumFractionDigits:2}}) : "—";
-  document.getElementById("res-fd").textContent  = fmtN(p.ForecastedDemand);
-  document.getElementById("res-ss").textContent  = fmtN(p.SafetyStock);
-  document.getElementById("res-rop").textContent = fmtN(p.ROP);
-  document.getElementById("res-eoq").textContent = fmtN(p.EOQ);
+  document.getElementById("res-fd").textContent      = fmtN(p.ForecastedDemand);
+  document.getElementById("res-sitemin").textContent = fmtN(p.SiteMinimum);
+  document.getElementById("res-eoq").textContent     = fmtN(p.EOQ);
+  document.getElementById("res-sitemax").textContent = fmtN(p.SiteMaximum);
 
   const pol = p.Policy || "—";
   const lc  = pol.toLowerCase();
@@ -479,12 +555,38 @@ function showResult(p) {{
   const hdr = document.getElementById("result-header");
   const abc = (p.ABC||"").toUpperCase();
   hdr.style.background = abc==="A" ? "#3D2008" : abc==="B" ? "#C98B50" : "#A0743E";
+
+  renderLeadTime(p);
+}}
+
+function isMissingLeadTime(p) {{
+  return p.LeadTimeDays == null || Number(p.LeadTimeDays) === 0;
+}}
+
+function renderLeadTime(p) {{
+  const missing = isMissingLeadTime(p);
+  document.getElementById("res-lt").textContent = p.LeadTimeDays != null ? Number(p.LeadTimeDays).toLocaleString("en-US",{{maximumFractionDigits:2}}) : "—";
+  document.getElementById("lt-warning").classList.toggle("visible", missing);
+
+  const indicator = document.getElementById("res-lt-indicator");
+  if (p.LeadTimeSource === "manually corrected" && p.LeadTimeCorrectedDate) {{
+    indicator.textContent = `(manually corrected on ${{p.LeadTimeCorrectedDate}})`;
+  }} else {{
+    indicator.textContent = "";
+  }}
+
+  document.getElementById("lt-input").value = p.LeadTimeDays != null ? p.LeadTimeDays : "";
+  const byInput = document.getElementById("lt-by");
+  if (!byInput.value) byInput.value = localStorage.getItem("lt-corrected-by") || "";
+  document.getElementById("lt-save-status").textContent = "";
+  document.getElementById("lt-save-status").className = "calc-note lt-save-status";
 }}
 
 function clearLookup() {{
   document.getElementById("lookup-input").value = "";
   document.getElementById("lookup-result").classList.remove("visible");
   document.getElementById("no-result").classList.remove("visible");
+  currentLookupPart = null;
 }}
 
 // ── TABLE FILTERS ─────────────────────────────────────────
@@ -536,9 +638,9 @@ const TCOLS = [
   {{ key:"PartNum",          label:"Part #",          w:"160px" }},
   {{ key:"ABCXYZ",           label:"Class",           w:"70px"  }},
   {{ key:"ForecastedDemand", label:"Fcst Demand/Mo",  w:"130px", num:true }},
-  {{ key:"SafetyStock",      label:"Safety Stock",    w:"110px", num:true }},
-  {{ key:"ROP",              label:"ROP",             w:"90px",  num:true }},
+  {{ key:"SiteMinimum",      label:"Site Min",        w:"90px",  num:true }},
   {{ key:"EOQ",              label:"EOQ",             w:"90px",  num:true }},
+  {{ key:"SiteMaximum",      label:"Site Max",        w:"90px",  num:true }},
   {{ key:"Policy",           label:"Policy",          w:"200px" }},
 ];
 
@@ -623,9 +725,94 @@ function renderTbl() {{
 function goPage(n) {{ tblPage = n; renderTbl(); }}
 """ + """
 // ── CALCULATOR MODE ───────────────────────────────────────
-const Z_LOOKUP = { "1.28":0.90, "1.65":0.95, "2.05":0.98, "2.33":0.99 };
+// Service factor is looked up by ABC code only (NOT by XYZ), per Epicor Kinetic's
+// Site Minimum Calculator.
+const Z_FACTORS = { A: 2.05, B: 1.64, C: 1.28 };
+const Z_SERVICE_LEVEL = { A: "98%", B: "95%", C: "90%" };
+const WORKING_DAYS = 250;
+const DESIRED_TURNS = 8;
 const STORAGE_AVAILABLE = typeof window.storage !== "undefined";
 let memoryCalcLog = [];
+
+// Mirrors 03_safety_stock.compute_safety_stock + 06_EOQ.compute_site_max so
+// a Lead Time correction is reflected in Site Min/Max the instant it's
+// saved, without waiting on a full pipeline re-run or a page reload.
+// EOQ has no lead-time term in its formula, so it's left unchanged.
+function recomputeForPart(p, leadTimeDays) {
+  const abc = (p.ABC || "").toUpperCase();
+  const z = Z_FACTORS[abc] || 0;
+  const stdDaily = Number(p.StdDevDailyDemand) || 0;
+  const leadTime = Number(leadTimeDays) || 0;
+  const siteMin = Math.ceil(z * stdDaily * Math.sqrt(leadTime));
+
+  const avgDaily = Number(p.AvgDailyDemand) || 0;
+  const annualDemand = avgDaily * 365;
+  const eoq = Number(p.EOQ) || 0;
+  const siteMax = eoq <= annualDemand
+    ? eoq + siteMin - 1
+    : Math.round((avgDaily * WORKING_DAYS) / DESIRED_TURNS);
+
+  return { siteMin, siteMax };
+}
+
+async function saveLeadTimeCorrection() {
+  const statusEl = document.getElementById("lt-save-status");
+  if (!currentLookupPart) {
+    statusEl.textContent = "Look up a part first.";
+    statusEl.className = "calc-note lt-save-status flag-bad";
+    return;
+  }
+  const partNum = currentLookupPart.PartNum;
+  const newLeadTime = parseFloat(document.getElementById("lt-input").value);
+  const correctedBy = document.getElementById("lt-by").value.trim();
+  if (isNaN(newLeadTime) || newLeadTime < 0) {
+    statusEl.textContent = "Enter a valid lead time (0 or more days).";
+    statusEl.className = "calc-note lt-save-status flag-bad";
+    return;
+  }
+  if (!correctedBy) {
+    statusEl.textContent = "Enter your initials so the correction is attributed.";
+    statusEl.className = "calc-note lt-save-status flag-bad";
+    return;
+  }
+
+  statusEl.textContent = "Saving…";
+  statusEl.className = "calc-note lt-save-status";
+  try {
+    const res = await fetch("/api/save-override", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        part_number: partNum,
+        corrected_lead_time: newLeadTime,
+        corrected_by: correctedBy,
+        note: ""
+      })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || `Server responded ${res.status}`);
+
+    localStorage.setItem("lt-corrected-by", correctedBy);
+
+    // Update in-memory data so the fix shows immediately — in this result
+    // card, in the browse table, and for the rest of the session — without
+    // a reload.
+    const { siteMin, siteMax } = recomputeForPart(currentLookupPart, newLeadTime);
+    currentLookupPart.LeadTimeDays = newLeadTime;
+    currentLookupPart.LeadTimeSource = "manually corrected";
+    currentLookupPart.LeadTimeCorrectedDate = data.corrected_date;
+    currentLookupPart.SiteMinimum = siteMin;
+    currentLookupPart.SiteMaximum = siteMax;
+
+    showResult(currentLookupPart);
+    statusEl.textContent = `Saved — Lead Time corrected to ${newLeadTime} days.`;
+    statusEl.className = "calc-note lt-save-status flag-good";
+    renderTbl();
+  } catch (e) {
+    statusEl.textContent = `Could not save (${e.message}). Corrections require running the dashboard via serve_dashboard.py, not opening the HTML file directly.`;
+    statusEl.className = "calc-note lt-save-status flag-bad";
+  }
+}
 
 function setMode(mode) {
   const isCalc = mode === "calc";
@@ -644,9 +831,9 @@ function cNum(id) {
 function calcPolicyFor(abc, xyz) {
   if (!abc || !xyz) return "Select ABC + XYZ";
   const code = abc + xyz;
-  if (["AX","AY","BX","BY"].includes(code)) return "Automated reorder candidate";
+  if (["AX","AY","BX","BY","CX","CY"].includes(code)) return "Automated reorder candidate";
   if (["AZ","BZ"].includes(code)) return "Periodic review recommended";
-  return "Not modeled (C-tier)";
+  return "Order-only candidate"; // CZ
 }
 
 function calcDeltaFlag(manual, pipeline) {
@@ -664,27 +851,32 @@ function calcCompute() {
   const unitCost = cNum("c-unitcost");
   const orderCost = cNum("c-ordercost");
   const holdRatePct = cNum("c-holdrate");
-  const z = parseFloat(document.getElementById("c-service").value);
+  const abc = document.getElementById("c-abc").value;
+  const z = Z_FACTORS[abc] || 0;
+
+  const zNote = document.getElementById("c-zval");
+  zNote.textContent = abc ? `Z = ${z} (${Z_SERVICE_LEVEL[abc]} service level)` : "Select an ABC class to look up Z";
 
   const forecastMonthly = avgDaily * 30;
-  const safetyStock = z * Math.sqrt(leadTime) * stdDaily;
-  const rop = (avgDaily * leadTime) + safetyStock;
+  const siteMin = Math.ceil(z * stdDaily * Math.sqrt(leadTime));
   const annualDemand = avgDaily * 365;
   const holdingCostPerUnit = (holdRatePct / 100) * unitCost;
   const eoq = holdingCostPerUnit > 0 && annualDemand > 0
-    ? Math.sqrt((2 * annualDemand * orderCost) / holdingCostPerUnit)
+    ? Math.ceil(Math.sqrt((2 * annualDemand * orderCost) / holdingCostPerUnit))
     : 0;
+  const siteMax = eoq <= annualDemand
+    ? eoq + siteMin - 1
+    : Math.round((avgDaily * WORKING_DAYS) / DESIRED_TURNS);
 
-  document.getElementById("c-out-fd").textContent  = forecastMonthly.toFixed(2);
-  document.getElementById("c-out-ss").textContent  = safetyStock.toFixed(2);
-  document.getElementById("c-out-rop").textContent = rop.toFixed(2);
-  document.getElementById("c-out-eoq").textContent = eoq.toFixed(2);
+  document.getElementById("c-out-fd").textContent      = forecastMonthly.toFixed(2);
+  document.getElementById("c-out-sitemin").textContent = siteMin.toFixed(2);
+  document.getElementById("c-out-eoq").textContent     = eoq.toFixed(2);
+  document.getElementById("c-out-sitemax").textContent = siteMax.toFixed(2);
 
-  const abc = document.getElementById("c-abc").value;
   const xyz = document.getElementById("c-xyz").value;
   document.getElementById("c-out-policy").textContent = calcPolicyFor(abc, xyz);
 
-  const calc = { forecastMonthly, safetyStock, rop, eoq };
+  const calc = { forecastMonthly, siteMin, eoq, siteMax };
   renderCalcDeltas(calc);
   return calc;
 }
@@ -692,9 +884,9 @@ function calcCompute() {
 function renderCalcDeltas(calc) {
   const rows = [
     ["Forecasted demand", calc.forecastMonthly, document.getElementById("c-pfd").value],
-    ["Safety stock",      calc.safetyStock,      document.getElementById("c-pss").value],
-    ["Reorder point",     calc.rop,              document.getElementById("c-prop").value],
+    ["Site Minimum",      calc.siteMin,          document.getElementById("c-psitemin").value],
     ["EOQ",               calc.eoq,              document.getElementById("c-peoq").value],
+    ["Site Maximum",      calc.siteMax,          document.getElementById("c-psitemax").value],
   ];
   let html = "";
   rows.forEach(([label, manual, rawVal]) => {
@@ -717,24 +909,61 @@ function toggleCompare() {
   document.getElementById("compare-arrow").textContent = open ? "▾" : "▸";
 }
 
+const CALC_AUTOFILL_IDS = ["c-avgdaily","c-stddaily","c-leadtime","c-unitcost","c-ordercost","c-holdrate"];
+
+function calcSetMatchStatus(cls, text) {
+  const el = document.getElementById("c-match-status");
+  el.textContent = text;
+  el.className = "calc-note" + (cls ? " " + cls : "");
+}
+
 function calcAutofillFromPart(val) {
   const q = (val||"").trim().toLowerCase();
-  if (!q) return;
+
+  if (!q) {
+    // No part number entered — clear the autofilled fields back to the
+    // unset placeholder state so they can't be mistaken for real data.
+    document.getElementById("c-abc").value = "";
+    document.getElementById("c-xyz").value = "";
+    CALC_AUTOFILL_IDS.forEach(id => document.getElementById(id).value = "");
+    document.getElementById("c-pfd").value = "";
+    document.getElementById("c-psitemin").value = "";
+    document.getElementById("c-peoq").value = "";
+    document.getElementById("c-psitemax").value = "";
+    calcSetMatchStatus("", "No part selected — fields below are unset example placeholders, not real data.");
+    calcCompute();
+    return;
+  }
+
   const part = ALL_DATA.find(d => (d.PartNum||"").toLowerCase() === q);
-  if (!part) return;
+  if (!part) {
+    // Typed value doesn't match any part in the pipeline output — say so
+    // explicitly instead of silently leaving stale/placeholder values in
+    // place, which would look like a real per-part lookup.
+    calcSetMatchStatus("flag-bad", `No pipeline match found for "${val}" — enter values manually.`);
+    return;
+  }
+
   document.getElementById("c-abc").value = part.ABC || "";
   document.getElementById("c-xyz").value = part.XYZ || "";
-  document.getElementById("c-pfd").value  = part.ForecastedDemand ?? "";
-  document.getElementById("c-pss").value  = part.SafetyStock ?? "";
-  document.getElementById("c-prop").value = part.ROP ?? "";
-  document.getElementById("c-peoq").value = part.EOQ ?? "";
+  document.getElementById("c-avgdaily").value = part.AvgDailyDemand ?? "";
+  document.getElementById("c-stddaily").value = part.StdDevDailyDemand ?? "";
+  document.getElementById("c-leadtime").value = part.LeadTimeDays ?? "";
+  document.getElementById("c-unitcost").value = part.UnitCost ?? "";
+  document.getElementById("c-ordercost").value = part.OrderingCost ?? "";
+  document.getElementById("c-holdrate").value = part.HoldingCostRatePct ?? "";
+  document.getElementById("c-pfd").value      = part.ForecastedDemand ?? "";
+  document.getElementById("c-psitemin").value = part.SiteMinimum ?? "";
+  document.getElementById("c-peoq").value     = part.EOQ ?? "";
+  document.getElementById("c-psitemax").value = part.SiteMaximum ?? "";
+  calcSetMatchStatus("flag-good", `Autofilled from pipeline data for "${part.PartNum}".`);
   const body = document.getElementById("compare-body");
   if (!body.classList.contains("open")) toggleCompare();
   calcCompute();
 }
 
-["c-service","c-avgdaily","c-stddaily","c-leadtime","c-unitcost","c-ordercost","c-holdrate",
- "c-abc","c-xyz","c-pfd","c-pss","c-prop","c-peoq"]
+["c-avgdaily","c-stddaily","c-leadtime","c-unitcost","c-ordercost","c-holdrate",
+ "c-abc","c-xyz","c-pfd","c-psitemin","c-peoq","c-psitemax"]
   .forEach(id => document.getElementById(id).addEventListener("input", calcCompute));
 
 async function loadCalcEntries() {
@@ -753,10 +982,10 @@ async function saveCalcEntries(entries) {
 
 function calcWorstFlag(entry) {
   const flags = [];
-  if (entry.pipeline.fd  !== "") flags.push(calcDeltaFlag(entry.calc.forecastMonthly, parseFloat(entry.pipeline.fd)  || 0));
-  if (entry.pipeline.ss  !== "") flags.push(calcDeltaFlag(entry.calc.safetyStock,     parseFloat(entry.pipeline.ss)  || 0));
-  if (entry.pipeline.rop !== "") flags.push(calcDeltaFlag(entry.calc.rop,             parseFloat(entry.pipeline.rop) || 0));
-  if (entry.pipeline.eoq !== "") flags.push(calcDeltaFlag(entry.calc.eoq,             parseFloat(entry.pipeline.eoq) || 0));
+  if (entry.pipeline.fd      !== "") flags.push(calcDeltaFlag(entry.calc.forecastMonthly, parseFloat(entry.pipeline.fd)      || 0));
+  if (entry.pipeline.sitemin !== "") flags.push(calcDeltaFlag(entry.calc.siteMin,          parseFloat(entry.pipeline.sitemin) || 0));
+  if (entry.pipeline.eoq     !== "") flags.push(calcDeltaFlag(entry.calc.eoq,              parseFloat(entry.pipeline.eoq)     || 0));
+  if (entry.pipeline.sitemax !== "") flags.push(calcDeltaFlag(entry.calc.siteMax,          parseFloat(entry.pipeline.sitemax) || 0));
   const real = flags.filter(Boolean);
   if (real.some(f => f.cls === "flag-bad"))  return { cls:"flag-bad",  label:"mismatch" };
   if (real.some(f => f.cls === "flag-warn")) return { cls:"flag-warn", label:"close" };
@@ -778,15 +1007,15 @@ async function renderCalcLog() {
       <td>${entry.partNum || "—"}</td>
       <td>${new Date(entry.savedAt).toLocaleDateString()}</td>
       <td>${entry.calc.forecastMonthly.toFixed(2)}</td>
-      <td>${entry.calc.safetyStock.toFixed(2)}</td>
-      <td>${entry.calc.rop.toFixed(2)}</td>
+      <td>${entry.calc.siteMin.toFixed(2)}</td>
       <td>${entry.calc.eoq.toFixed(2)}</td>
+      <td>${entry.calc.siteMax.toFixed(2)}</td>
       <td>${flag ? `<span class="flag ${flag.cls}">${flag.label}</span>` : "—"}</td>
       <td><button class="calc-del-btn" onclick="deleteCalcEntry(${entry.savedAt})">Delete</button></td>
     </tr>`;
   }).join("");
   container.innerHTML = `<table class="calc-log-table">
-    <thead><tr><th>Part #</th><th>Saved</th><th>Forecast</th><th>Safety</th><th>ROP</th><th>EOQ</th><th>Check</th><th></th></tr></thead>
+    <thead><tr><th>Part #</th><th>Saved</th><th>Forecast</th><th>Site Min</th><th>EOQ</th><th>Site Max</th><th>Check</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -805,10 +1034,10 @@ async function saveCalcCheck() {
     partNum: document.getElementById("c-partnum").value,
     calc,
     pipeline: {
-      fd:  document.getElementById("c-pfd").value,
-      ss:  document.getElementById("c-pss").value,
-      rop: document.getElementById("c-prop").value,
-      eoq: document.getElementById("c-peoq").value
+      fd:      document.getElementById("c-pfd").value,
+      sitemin: document.getElementById("c-psitemin").value,
+      eoq:     document.getElementById("c-peoq").value,
+      sitemax: document.getElementById("c-psitemax").value
     }
   };
   const entries = await loadCalcEntries();
@@ -824,9 +1053,9 @@ function copyCalcRow() {
   const row = [
     document.getElementById("c-partnum").value,
     calc.forecastMonthly.toFixed(2),
-    calc.safetyStock.toFixed(2),
-    calc.rop.toFixed(2),
+    calc.siteMin.toFixed(2),
     calc.eoq.toFixed(2),
+    calc.siteMax.toFixed(2),
     calcPolicyFor(abc, xyz)
   ].join("\\t");
   navigator.clipboard.writeText(row).catch(() => {});
@@ -924,27 +1153,48 @@ renderCalcLog();
             <span class="result-partnum" id="res-partnum"></span>
             <span class="result-class-badge" id="res-class"></span>
           </div>
+          <div class="lt-warning" id="lt-warning">
+            ⚠ No lead time on file for this part — Site Minimum, EOQ, and Site Maximum below are not reliable. Enter a corrected lead time to fix this permanently.
+          </div>
           <div class="result-rows">
             <div class="result-row">
               <div class="result-lbl">Forecasted Demand</div>
               <div class="result-val"><span id="res-fd"></span><span class="result-unit">units / month</span></div>
             </div>
             <div class="result-row">
-              <div class="result-lbl">Safety Stock</div>
-              <div class="result-val"><span id="res-ss"></span><span class="result-unit">units</span></div>
-            </div>
-            <div class="result-row">
-              <div class="result-lbl">Reorder Point (ROP)</div>
-              <div class="result-val"><span id="res-rop"></span><span class="result-unit">units</span></div>
+              <div class="result-lbl">Site Minimum</div>
+              <div class="result-val"><span id="res-sitemin"></span><span class="result-unit">units</span></div>
             </div>
             <div class="result-row">
               <div class="result-lbl">Eco. Order Qty (EOQ)</div>
               <div class="result-val"><span id="res-eoq"></span><span class="result-unit">units per order</span></div>
             </div>
             <div class="result-row">
+              <div class="result-lbl">Site Maximum</div>
+              <div class="result-val"><span id="res-sitemax"></span><span class="result-unit">units</span></div>
+            </div>
+            <div class="result-row">
+              <div class="result-lbl">Lead Time</div>
+              <div class="result-val"><span id="res-lt"></span><span class="result-unit">days</span><span class="lt-indicator" id="res-lt-indicator"></span></div>
+            </div>
+            <div class="result-row">
               <div class="result-lbl">Policy</div>
               <div class="result-val"><span id="res-policy" class="result-policy-badge"></span></div>
             </div>
+          </div>
+          <div class="lt-edit-block">
+            <div class="lt-edit-row">
+              <div class="calc-field">
+                <label for="lt-input">Corrected lead time (days)</label>
+                <input type="number" id="lt-input" min="0" step="any" placeholder="e.g. 45">
+              </div>
+              <div class="calc-field lt-by-field">
+                <label for="lt-by">Corrected by</label>
+                <input type="text" id="lt-by" placeholder="initials">
+              </div>
+              <button class="calc-btn calc-btn-primary" onclick="saveLeadTimeCorrection()">Save Correction</button>
+            </div>
+            <div class="calc-note lt-save-status" id="lt-save-status"></div>
           </div>
         </div>
 
@@ -956,45 +1206,38 @@ renderCalcLog();
           <div class="calc-field">
             <label for="c-partnum">Part number (optional — autofills pipeline values below if it matches)</label>
             <input type="text" id="c-partnum" list="part-list" placeholder="e.g. 6605173" oninput="calcAutofillFromPart(this.value)" autocomplete="off">
+            <span class="calc-note" id="c-match-status">No part selected — fields below are unset example placeholders, not real data.</span>
           </div>
           <div class="calc-field">
-            <label for="c-service">Service level</label>
-            <select id="c-service">
-              <option value="1.28">90%</option>
-              <option value="1.65" selected>95%</option>
-              <option value="2.05">98%</option>
-              <option value="2.33">99%</option>
-            </select>
-          </div>
-          <div class="calc-field">
-            <label for="c-abc">ABC class (optional)</label>
+            <label for="c-abc">ABC class (looks up Z automatically)</label>
             <select id="c-abc">
               <option value="">—</option><option value="A">A</option><option value="B">B</option><option value="C">C</option>
             </select>
+            <span class="calc-note" id="c-zval">Select an ABC class to look up Z</span>
           </div>
           <div class="calc-field">
             <label for="c-avgdaily">Avg daily demand (units/day)</label>
-            <input type="number" id="c-avgdaily" step="any" value="0.5">
+            <input type="number" id="c-avgdaily" step="any" placeholder="e.g. 0.5">
           </div>
           <div class="calc-field">
             <label for="c-stddaily">Std dev of daily demand (units/day)</label>
-            <input type="number" id="c-stddaily" step="any" value="0.3">
+            <input type="number" id="c-stddaily" step="any" placeholder="e.g. 0.3">
           </div>
           <div class="calc-field">
             <label for="c-leadtime">Lead time (days)</label>
-            <input type="number" id="c-leadtime" step="any" value="30">
+            <input type="number" id="c-leadtime" step="any" placeholder="e.g. 30">
           </div>
           <div class="calc-field">
             <label for="c-unitcost">Unit cost ($)</label>
-            <input type="number" id="c-unitcost" step="any" value="120">
+            <input type="number" id="c-unitcost" step="any" placeholder="e.g. 120">
           </div>
           <div class="calc-field">
             <label for="c-ordercost">Ordering cost per PO ($)</label>
-            <input type="number" id="c-ordercost" step="any" value="50">
+            <input type="number" id="c-ordercost" step="any" placeholder="e.g. 50">
           </div>
           <div class="calc-field">
             <label for="c-holdrate">Holding cost rate (% of unit cost / year)</label>
-            <input type="number" id="c-holdrate" step="any" value="25">
+            <input type="number" id="c-holdrate" step="any" placeholder="e.g. 25">
           </div>
         </div>
 
@@ -1004,16 +1247,19 @@ renderCalcLog();
             <div class="cc-val" id="c-out-fd">—</div><span class="cc-unit">units/mo</span>
           </div>
           <div class="calc-card">
-            <div class="cc-lbl">Safety stock</div>
-            <div class="cc-val" id="c-out-ss">—</div><span class="cc-unit">units</span>
-          </div>
-          <div class="calc-card">
-            <div class="cc-lbl">Reorder point</div>
-            <div class="cc-val" id="c-out-rop">—</div><span class="cc-unit">units</span>
+            <div class="cc-lbl">Site Minimum</div>
+            <div class="cc-val" id="c-out-sitemin">—</div><span class="cc-unit">units</span>
+            <div class="calc-note">SiteMin = ROUNDUP(Z × σ × √LT, 0)</div>
           </div>
           <div class="calc-card">
             <div class="cc-lbl">EOQ</div>
             <div class="cc-val" id="c-out-eoq">—</div><span class="cc-unit">units/order</span>
+            <div class="calc-note">EOQ = ROUNDUP(√(2×FixedPOCost×AnnualDemand / (HoldingCost% × AccountingValue)), 0)</div>
+          </div>
+          <div class="calc-card">
+            <div class="cc-lbl">Site Maximum</div>
+            <div class="cc-val" id="c-out-sitemax">—</div><span class="cc-unit">units</span>
+            <div class="calc-note">SiteMax = EOQ+SiteMin−1 if EOQ≤AnnualDemand, else (AvgDailyDemand×WorkingDays)/DesiredTurns</div>
           </div>
         </div>
 
@@ -1032,9 +1278,9 @@ renderCalcLog();
           <div class="compare-body" id="compare-body">
             <div class="calc-grid" style="margin-top:10px;">
               <div class="calc-field"><label for="c-pfd">Pipeline forecast</label><input type="number" id="c-pfd" step="any" placeholder="from dashboard"></div>
-              <div class="calc-field"><label for="c-pss">Pipeline safety stock</label><input type="number" id="c-pss" step="any" placeholder="from dashboard"></div>
-              <div class="calc-field"><label for="c-prop">Pipeline ROP</label><input type="number" id="c-prop" step="any" placeholder="from dashboard"></div>
+              <div class="calc-field"><label for="c-psitemin">Pipeline Site Minimum</label><input type="number" id="c-psitemin" step="any" placeholder="from dashboard"></div>
               <div class="calc-field"><label for="c-peoq">Pipeline EOQ</label><input type="number" id="c-peoq" step="any" placeholder="from dashboard"></div>
+              <div class="calc-field"><label for="c-psitemax">Pipeline Site Maximum</label><input type="number" id="c-psitemax" step="any" placeholder="from dashboard"></div>
             </div>
             <div id="delta-table" style="margin-top:8px;"></div>
             <p class="calc-note">Green = within 5%. Amber = 5–20% off. Red = more than 20% off — usually means the demand input feeding the pipeline differs from what's entered here.</p>
