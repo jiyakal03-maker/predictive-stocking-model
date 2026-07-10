@@ -1,6 +1,6 @@
 # Stocking Model
 
-A predictive inventory stocking pipeline for Etnyre International Ltd, built to sit alongside normal purchasing workflows — not replace them. It turns raw Epicor Kinetic PO history into buyer-facing recommendations: how to classify a part, how much safety stock to hold, when to reorder, and how much to order.
+A predictive inventory stocking pipeline for Etnyre International Ltd, built to sit alongside normal purchasing workflows. It turns raw Epicor Kinetic PO history into buyer-facing recommendations: how to classify a part, how much safety stock to hold, when to reorder, and how much to order.
 
 The output is meant to be read by buyers, not just data people. Every number the pipeline produces should be traceable back to a formula a non-technical stakeholder can look up and sanity-check — that's the design principle behind both this pipeline and the Part Lookup dashboard that sits on top of it.
 
