@@ -134,218 +134,286 @@ def build_html(df):
     # ── CSS ──────────────────────────────────────────────
     CSS = """
 :root {
-  --bg:      #F5EFE6;
-  --card:    #FDFAF5;
-  --chdr:    #EDE5D8;
-  --accent:  #C98B50;
-  --accent2: #D4AA72;
-  --primary: #7B5B38;
-  --text:    #3A2C1E;
-  --tmid:    #6B5240;
-  --tlt:     #9B8070;
-  --brd:     #DDD0C0;
-  --brdl:    #EDE5D8;
-  --topbar:  #2E2218;
-  --sh:      0 2px 8px rgba(58,44,30,.10);
-  --sh-md:   0 4px 16px rgba(58,44,30,.14);
+  --bg:      #F3F4F2;
+  --card:    #FFFFFF;
+  --chdr:    #EDEEEC;
+  --accent:  #35617D;
+  --accent2: #B7C9D2;
+  --primary: #1F3F52;
+  --text:    #1B2430;
+  --tmid:    #5B6672;
+  --tlt:     #5B6672;
+  --brd:     #C3C9C5;
+  --brdl:    #DBDFDC;
+  --topbar:  #1F3F52;
+  --amber:   #B9762F;
+  --amber-tint: #F7ECDD;
+  --good:    #4C7A5E;
+  --good-tint: #E7EFEA;
+  --bad:     #B14A3E;
+  --bad-tint: #F6E7E4;
+  --sh:      none;
+  --sh-md:   none;
 }
 *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
 body {
-  font-family:"Segoe UI", system-ui, sans-serif;
+  font-family:'IBM Plex Sans', "Segoe UI", system-ui, sans-serif;
   background:var(--bg); color:var(--text);
-  min-height:100vh; overflow-y:auto;
+  min-height:100vh; overflow-y:auto; font-size:14px; line-height:1.45;
 }
+.mono, .lookup-input, .calc-field input, .calc-field select,
+.result-val, .cc-val, .fexpr { font-family:'IBM Plex Mono', monospace; }
 
 /* TOPBAR */
 .topbar {
-  background:var(--topbar); color:#F0E4D0;
+  background:var(--topbar); color:#fff;
   display:flex; align-items:center; justify-content:space-between;
   padding:0 32px; height:52px;
   border-bottom:3px solid var(--accent); position:sticky; top:0; z-index:20;
 }
-.tb-left { display:flex; align-items:center; gap:14px; }
-.tb-logo { background:var(--accent); color:#fff; font-weight:700; font-size:12px; padding:4px 9px; border-radius:4px; }
-.tb-title { font-size:16px; font-weight:600; }
-.tb-right { font-size:11px; color:var(--accent2); text-align:right; }
+.tb-left { display:flex; align-items:baseline; gap:14px; }
+.tb-logo {
+  font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.14em;
+  color:#9FBBC9; border:1px solid #3E6A82; padding:3px 6px; border-radius:2px;
+  background:transparent; font-weight:600;
+}
+.tb-title { font-size:16px; font-weight:600; letter-spacing:.01em; }
+.tb-sub { font-size:12px; color:#B7C9D2; margin-left:4px; }
+.tb-right { font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:#B7C9D2; display:flex; gap:18px; }
+
+/* NAV TABS */
+.tabs {
+  display:flex; gap:2px; padding:0 28px;
+  background:var(--card); border-bottom:1px solid var(--brdl);
+}
+.tab-btn {
+  font-family:'IBM Plex Sans',sans-serif; font-size:13px; font-weight:500;
+  color:var(--tmid); background:none; border:none;
+  padding:13px 16px 11px; cursor:pointer;
+  border-bottom:2px solid transparent; letter-spacing:.01em;
+}
+.tab-btn:hover { color:var(--text); }
+.tab-btn.active { color:var(--primary); border-bottom:2px solid var(--accent); font-weight:600; }
 
 /* PAGE */
-.page { max-width:1060px; margin:0 auto; padding:28px 24px 48px; display:flex; flex-direction:column; gap:28px; }
+.page { max-width:1160px; margin:0 auto; padding:24px 28px 60px; display:flex; flex-direction:column; gap:28px; }
+.view { display:none; }
+.view.active { display:flex; flex-direction:column; gap:28px; }
 
 /* SECTION LABEL */
 .sec-label {
   font-size:10px; font-weight:700; text-transform:uppercase;
   letter-spacing:1px; color:var(--tlt); margin-bottom:8px;
 }
+.page-head h2 { font-size:15px; margin:0 0 3px; font-weight:600; }
+.page-head p { margin:0; color:var(--tlt); font-size:13px; max-width:720px; }
 
 /* CARD */
 .card {
-  background:var(--card); border-radius:10px;
+  background:var(--card); border-radius:3px;
   border:1px solid var(--brdl); box-shadow:var(--sh);
 }
 .card-hdr {
-  padding:12px 18px; background:var(--chdr);
+  padding:12px 16px; background:var(--card);
   border-bottom:1px solid var(--brdl);
-  font-size:13px; font-weight:600; color:var(--text);
+  font-size:12px; font-weight:600; color:var(--tmid);
+  text-transform:uppercase; letter-spacing:.08em;
 }
 
-/* ── MATRIX ─────────────────────────────────── */
+/* ── LOOKUP GRID (Inputs left / Outputs right) ── */
+.lookup-grid { display:grid; grid-template-columns:340px 1fr; gap:20px; align-items:start; }
+@media (max-width:900px) { .lookup-grid { grid-template-columns:1fr; } }
+.panel { background:var(--card); border:1px solid var(--brdl); border-radius:3px; }
+.panel-head {
+  padding:12px 16px; border-bottom:1px solid var(--brdl);
+  font-size:12px; text-transform:uppercase; letter-spacing:.08em;
+  font-weight:600; color:var(--tlt);
+}
+.panel-body { padding:16px; }
+.status-pill {
+  display:inline-block; margin-top:8px; font-size:11px; font-weight:600;
+  padding:2px 10px; border-radius:20px; background:var(--amber-tint); color:var(--amber);
+}
+.status-pill.auto     { background:var(--good-tint); color:var(--good); }
+.status-pill.periodic { background:var(--amber-tint); color:var(--amber); }
+.status-pill.manual   { background:var(--chdr); color:var(--tmid); }
+
+/* ── MATRIX / HEATMAP ───────────────────────── */
 .mx-wrap { padding:14px; }
 .mx-grid {
   display:grid;
-  grid-template-columns:30px repeat(3,1fr);
-  gap:5px;
+  grid-template-columns:60px repeat(3,1fr);
+  gap:10px;
+  max-width:900px;
 }
 .mx-hdr-cell {
   background:transparent; color:var(--tlt);
-  font-size:9.5px; font-weight:700; text-transform:uppercase;
-  letter-spacing:.7px; padding:4px 0; text-align:center;
+  font-size:11px; font-weight:600; text-transform:uppercase;
+  letter-spacing:.06em; padding:4px 0; text-align:center;
+  display:flex; align-items:center; justify-content:center;
 }
 .mx-side-cell {
   writing-mode:vertical-rl; text-orientation:mixed; transform:rotate(180deg);
-  font-size:9.5px; color:var(--tlt); font-weight:700; text-transform:uppercase;
-  text-align:center; padding:4px 0;
+  font-size:11px; color:var(--tlt); font-weight:600; text-transform:uppercase;
+  letter-spacing:.06em; text-align:center; padding:4px 0;
+  display:flex; align-items:center; justify-content:center;
 }
 .mx-data-cell {
-  border-radius:8px; padding:12px 10px;
+  border-radius:3px; padding:16px;
   display:flex; flex-direction:column;
-  align-items:center; justify-content:center;
-  text-align:center; min-height:74px;
+  justify-content:space-between;
+  min-height:92px; color:#fff;
   transition:transform .1s;
 }
 .mx-data-cell:hover { transform:scale(1.02); }
-.cx-key   { font-size:10px; font-weight:700; margin-bottom:4px; opacity:.8; }
-.cx-count { font-size:22px; font-weight:700; line-height:1; }
-.cx-spend { font-size:10px; margin-top:3px; opacity:.75; }
+.cx-key   { font-family:'IBM Plex Mono',monospace; font-size:11px; opacity:.85; }
+.cx-count { font-size:22px; font-weight:600; margin:4px 0 2px; }
+.cx-spend { font-size:11px; opacity:.85; }
 /* Cell colors — darkest = highest priority */
-.cAX { background:#3D2008; color:#fff; }
-.cAY { background:#5A3010; color:#fff; }
-.cAZ { background:#7A4A20; color:#fff; }
-.cBX { background:#C98B50; color:#fff; }
-.cBY { background:#D4A06B; color:#3A2C1E; }
-.cBZ { background:#DEB882; color:#3A2C1E; }
-.cCX { background:#E8CFA8; color:#5A4030; }
-.cCY { background:#EDD8B4; color:#6B5240; }
-.cCZ { background:#F2E4C8; color:#8B7060; }
-.cempty { background:var(--brdl); color:var(--tlt); }
+.cAX { background:#152A38; }
+.cAY { background:#1E3E4E; }
+.cAZ { background:#2A5468; }
+.cBX { background:#3D6C80; }
+.cBY { background:#5386A0; }
+.cBZ { background:#6FA0BC; }
+.cCX { background:#8FB8CE; color:#16303F; }
+.cCY { background:#B0D0E0; color:#16303F; }
+.cCZ { background:#D2E5EE; color:#16303F; }
+.cempty { background:var(--chdr); color:var(--tlt); }
+
+/* ── DEFINITION STRIPS ──────────────────────── */
+.def-strip { margin-top:16px; display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+@media (max-width:900px) { .def-strip { grid-template-columns:repeat(2,1fr); } }
+.def-strip .def-item { font-size:11.5px; color:var(--tlt); padding-left:10px; border-left:2px solid var(--brd); }
+.def-strip .def-item b { display:block; color:var(--text); font-size:12px; margin-bottom:2px; }
 
 /* ── PART LOOKUP ────────────────────────────── */
-.lookup-body { padding:18px; display:flex; flex-direction:column; gap:14px; }
+.lookup-body { padding:0; display:flex; flex-direction:column; gap:14px; }
 .lookup-input-row { display:flex; gap:10px; align-items:center; }
 .lookup-input {
-  flex:1; padding:10px 14px; border-radius:7px;
-  border:2px solid var(--brd); background:#fff;
-  font-size:14px; color:var(--text); outline:none;
+  flex:1; padding:8px 10px; border-radius:3px;
+  border:1px solid var(--brd); background:#fff;
+  font-size:13px; color:var(--text); outline:none;
   transition:border-color .15s;
 }
-.lookup-input:focus { border-color:var(--accent); }
+.lookup-input:focus { outline:2px solid var(--accent); outline-offset:-1px; border-color:var(--accent); }
 .lookup-clear {
-  padding:9px 14px; border-radius:7px;
+  padding:8px 14px; border-radius:3px;
   border:1px solid var(--brd); background:transparent;
   color:var(--tmid); font-size:12px; cursor:pointer;
   transition:all .15s; white-space:nowrap;
 }
 .lookup-clear:hover { border-color:var(--accent); color:var(--accent); }
+.field-label {
+  display:block; font-size:11px; font-weight:600; color:var(--tlt);
+  text-transform:uppercase; letter-spacing:.05em; margin-bottom:5px;
+}
 
 /* Result card */
-.result-card {
-  display:none; border-radius:8px;
-  border:2px solid var(--accent); overflow:hidden;
-}
+.result-card { display:none; }
 .result-card.visible { display:block; }
 .result-header {
-  background:var(--accent); color:#fff;
-  padding:10px 16px; display:flex; align-items:center;
-  justify-content:space-between;
+  padding:0 0 12px; display:flex; align-items:center; gap:10px;
 }
-.result-partnum { font-size:15px; font-weight:700; }
+.result-partnum { font-size:16px; font-weight:700; color:var(--primary); font-family:'IBM Plex Mono',monospace; }
 .result-class-badge {
-  background:rgba(255,255,255,.22); color:#fff;
-  padding:3px 10px; border-radius:12px;
-  font-size:12px; font-weight:700;
+  background:var(--accent); color:#fff;
+  padding:3px 10px; border-radius:2px;
+  font-size:11px; font-weight:700; font-family:'IBM Plex Mono',monospace;
 }
-.result-rows { padding:0; }
-.result-row {
-  display:flex; align-items:center;
-  padding:10px 16px; border-bottom:1px solid var(--brdl);
+
+/* metric cards (used by both Lookup result + Calculator output) */
+.metric-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:6px; }
+@media (max-width:900px) { .metric-grid { grid-template-columns:repeat(2,1fr); } }
+.calc-results { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:6px; }
+@media (max-width:900px) { .calc-results { grid-template-columns:repeat(2,1fr); } }
+.calc-card, .metric-card {
+  background:var(--card); border:1px solid var(--brdl); border-radius:3px; padding:14px 16px;
 }
-.result-row:last-child { border-bottom:none; }
-.result-row:nth-child(even) { background:#FAF5EE; }
-.result-lbl {
-  width:220px; font-size:12px; font-weight:600;
-  color:var(--tmid); flex-shrink:0;
+.calc-card .cc-lbl, .metric-card .label {
+  font-size:11px; text-transform:uppercase; letter-spacing:.06em;
+  color:var(--tlt); font-weight:600;
 }
-.result-val { font-size:14px; font-weight:600; color:var(--text); }
+.calc-card .cc-val, .metric-card .value {
+  font-family:'IBM Plex Mono',monospace; font-size:24px; font-weight:600;
+  color:var(--primary); margin:6px 0 2px; display:block;
+}
+.calc-card .cc-unit, .metric-card .unit { font-size:11px; color:var(--tlt); font-weight:400; }
+.calc-card .calc-note, .metric-card .def {
+  font-size:11.5px; color:var(--tlt); border-top:1px solid var(--brdl);
+  margin-top:10px; padding-top:8px; line-height:1.4;
+}
+.result-row { display:none; } /* legacy list rows, superseded by metric-grid */
+
+/* Lead time result row (kept as a distinct row below the metric grid) */
+.lt-row {
+  display:flex; align-items:center; gap:8px;
+  padding:10px 0; border-top:1px solid var(--brdl); margin-top:4px;
+  font-size:13px;
+}
+.lt-row .lt-lbl { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--tlt); width:110px; }
+.lt-row .result-val { font-size:14px; font-weight:600; color:var(--text); }
 .result-unit { font-size:11px; color:var(--tlt); margin-left:5px; font-weight:400; }
 .result-policy-badge {
   display:inline-block; padding:3px 10px;
-  border-radius:12px; font-size:11px; font-weight:700;
+  border-radius:20px; font-size:11px; font-weight:700;
 }
-.badge-auto     { background:#3D2008; color:#fff; }
-.badge-periodic { background:#C98B50; color:#fff; }
-.badge-manual   { background:#E8CFA8; color:#5A4030; }
+.badge-auto     { background:var(--good-tint); color:var(--good); }
+.badge-periodic { background:var(--amber-tint); color:var(--amber); }
+.badge-manual   { background:var(--chdr); color:var(--tmid); }
 .no-result {
-  display:none; padding:14px 16px;
+  display:none; padding:14px 0;
   color:var(--tlt); font-size:13px; font-style:italic;
 }
 .no-result.visible { display:block; }
 
 /* ── LEAD TIME WARNING / CORRECTION ─────────── */
 .lt-warning {
-  display:none; margin:12px 16px 0; padding:10px 14px;
-  border-radius:7px; background:#F6D8D2; color:#A32D2D;
+  display:none; margin:0 0 12px; padding:10px 14px;
+  border-radius:3px; background:var(--bad-tint); color:var(--bad);
   font-size:12.5px; font-weight:600; line-height:1.4;
 }
 .lt-warning.visible { display:block; }
 .lt-indicator { font-size:11px; color:var(--tlt); margin-left:6px; font-weight:400; font-style:italic; }
-.lt-edit-block { padding:14px 16px; border-top:1px solid var(--brdl); }
+.lt-edit-block { padding:14px 0 0; border-top:1px solid var(--brdl); margin-top:14px; }
 .lt-edit-row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
 .lt-edit-row .calc-field { flex:1; min-width:140px; }
 .lt-edit-row .calc-field.lt-by-field { flex:0 0 120px; }
 .lt-save-status { margin-top:8px; }
-.lt-save-status.flag-good { display:inline-block; padding:4px 10px; border-radius:6px; }
-.lt-save-status.flag-bad  { display:inline-block; padding:4px 10px; border-radius:6px; }
+.lt-save-status.flag-good { display:inline-block; padding:4px 10px; border-radius:3px; background:var(--good-tint); color:var(--good); }
+.lt-save-status.flag-bad  { display:inline-block; padding:4px 10px; border-radius:3px; background:var(--bad-tint); color:var(--bad); }
 
-/* ── MODE TOGGLE ────────────────────────────── */
-.mode-toggle { display:flex; gap:6px; }
+/* ── MODE TOGGLE (Lookup / Calculator segmented control) ── */
+.mode-toggle { display:inline-flex; border:1px solid var(--brd); border-radius:3px; overflow:hidden; }
 .mode-btn {
-  padding:5px 14px; border-radius:7px;
-  border:1px solid var(--brd); background:transparent;
+  padding:6px 14px; border-radius:0;
+  border:none; background:#fff;
   color:var(--tmid); font-size:12px; font-weight:600; cursor:pointer;
   transition:all .15s;
 }
-.mode-btn:hover { border-color:var(--accent); color:var(--accent); }
-.mode-btn.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+.mode-btn:hover { color:var(--accent); }
+.mode-btn.active { background:var(--accent); color:#fff; }
 
 /* ── CALCULATOR MODE ────────────────────────── */
-.calc-body { display:none; padding:18px; flex-direction:column; gap:16px; }
+.calc-body { display:none; flex-direction:column; gap:16px; }
 .calc-body.visible { display:flex; }
-.calc-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
-@media (max-width:760px) { .calc-grid { grid-template-columns:repeat(2,1fr); } }
+.calc-grid { display:grid; grid-template-columns:1fr; gap:14px; }
 .calc-field label {
-  font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.5px;
-  color:var(--tlt); display:block; margin-bottom:4px;
+  font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em;
+  color:var(--tlt); display:block; margin-bottom:5px;
 }
 .calc-field input, .calc-field select {
-  width:100%; padding:8px 10px; border-radius:6px;
+  width:100%; padding:8px 10px; border-radius:3px;
   border:1px solid var(--brd); background:#fff; font-size:13px; color:var(--text);
 }
-.calc-field input:focus, .calc-field select:focus { outline:none; border-color:var(--accent); }
-.calc-results { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
-@media (max-width:760px) { .calc-results { grid-template-columns:repeat(2,1fr); } }
-.calc-card { background:var(--chdr); border-radius:8px; padding:11px 12px; }
-.calc-card .cc-lbl {
-  font-size:9.5px; font-weight:700; text-transform:uppercase;
-  letter-spacing:.5px; color:var(--tlt); margin-bottom:4px;
-}
-.calc-card .cc-val { font-size:17px; font-weight:700; color:var(--primary); }
-.calc-card .cc-unit { font-size:10px; color:var(--tlt); font-weight:400; margin-left:3px; }
+.calc-field input:focus, .calc-field select:focus { outline:2px solid var(--accent); outline-offset:-1px; border-color:var(--accent); }
 .calc-policy {
-  display:inline-block; padding:3px 10px; border-radius:12px;
-  font-size:11px; font-weight:700; background:var(--accent); color:#fff;
+  display:inline-block; padding:2px 10px; border-radius:20px;
+  font-size:11px; font-weight:600; background:var(--amber-tint); color:var(--amber);
 }
 .calc-xyz-select {
   margin-left:8px; width:auto; display:inline-block;
-  padding:4px 8px; border-radius:6px; border:1px solid var(--brd); font-size:11px;
+  padding:4px 8px; border-radius:3px; border:1px solid var(--brd); font-size:11px;
 }
 .compare-toggle {
   display:flex; align-items:center; gap:6px; cursor:pointer;
@@ -355,16 +423,18 @@ body {
 .compare-body.open { display:block; }
 .delta-row {
   display:grid; grid-template-columns:1.3fr 1fr 1fr .8fr;
-  gap:8px; align-items:center; font-size:12px;
-  padding:7px 0; border-bottom:1px solid var(--brdl);
+  gap:8px; align-items:center; font-size:12.5px;
+  padding:9px 0; border-bottom:1px solid var(--brdl);
+  font-family:'IBM Plex Mono',monospace;
 }
+.delta-row:first-child { font-family:'IBM Plex Sans',sans-serif; }
 .delta-row:last-child { border-bottom:none; }
-.flag { font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:6px; text-align:center; }
-.flag-good { background:#E3EFD3; color:#3B6D11; }
-.flag-warn { background:#F6E6C8; color:#854F0B; }
-.flag-bad  { background:#F6D8D2; color:#A32D2D; }
+.flag { font-family:'IBM Plex Sans',sans-serif; font-size:11px; font-weight:600; padding:3px 9px; border-radius:20px; text-align:center; }
+.flag-good { background:var(--good-tint); color:var(--good); }
+.flag-warn { background:var(--amber-tint); color:var(--amber); }
+.flag-bad  { background:var(--bad-tint); color:var(--bad); }
 .calc-actions { display:flex; gap:10px; flex-wrap:wrap; }
-.calc-btn { padding:9px 16px; border-radius:7px; border:none; font-size:12.5px; font-weight:600; cursor:pointer; }
+.calc-btn { padding:9px 16px; border-radius:3px; border:none; font-size:12.5px; font-weight:600; cursor:pointer; }
 .calc-btn-primary { background:var(--primary); color:#fff; }
 .calc-btn-primary:hover { opacity:.9; }
 .calc-btn-secondary { background:var(--chdr); color:var(--primary); }
@@ -372,26 +442,57 @@ body {
 .calc-log-empty { font-size:12px; color:var(--tlt); padding:8px 0; }
 .calc-note { font-size:11px; color:var(--tlt); margin-top:2px; }
 .calc-section-lbl {
-  font-size:10px; font-weight:700; text-transform:uppercase;
-  letter-spacing:.7px; color:var(--tlt); margin-top:4px;
+  font-size:11px; font-weight:600; text-transform:uppercase;
+  letter-spacing:.06em; color:var(--tlt); margin-top:4px;
 }
 .calc-log-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:8px; }
 .calc-log-table th {
   text-align:left; padding:6px 8px; font-size:10px; font-weight:700;
   text-transform:uppercase; color:var(--tmid); border-bottom:2px solid var(--brd);
 }
-.calc-log-table td { padding:6px 8px; border-bottom:1px solid var(--brdl); }
+.calc-log-table td { padding:6px 8px; border-bottom:1px solid var(--brdl); font-family:'IBM Plex Mono',monospace; }
 .calc-del-btn {
-  padding:3px 8px; border-radius:5px; border:1px solid var(--brd);
+  padding:3px 8px; border-radius:3px; border:1px solid var(--brd);
   background:var(--bg); color:var(--tmid); font-size:11px; cursor:pointer;
 }
 .calc-del-btn:hover { border-color:var(--accent); color:var(--accent); }
 
+/* ── SPEC PLATE (methodology / formulas) ────── */
+.spec-toggle {
+  margin-top:4px; background:none; border:1px dashed var(--brd); border-radius:3px;
+  width:100%; text-align:left; padding:10px 14px;
+  font-family:'IBM Plex Sans',sans-serif; font-size:12.5px; font-weight:600;
+  color:var(--primary); cursor:pointer;
+  display:flex; align-items:center; justify-content:space-between;
+}
+.spec-toggle:hover { border-color:var(--accent); }
+.spec-toggle .chev { transition:transform .15s ease; }
+.spec-toggle.open .chev { transform:rotate(180deg); }
+.spec-plate {
+  margin-top:10px; background:var(--topbar); border-radius:3px; color:#EAF1F4;
+  padding:20px 22px 22px; display:none;
+}
+.spec-plate.open { display:block; }
+.spec-plate h4 {
+  margin:0 0 4px; font-size:11px; text-transform:uppercase;
+  letter-spacing:.14em; color:#9FBBC9; font-weight:600;
+}
+.spec-plate .lede { font-size:12.5px; color:#CFE0E7; max-width:680px; margin:0 0 16px; line-height:1.5; }
+.formula-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px; }
+@media (max-width:760px) { .formula-grid { grid-template-columns:1fr; } }
+.formula-row { background:#16303F; border:1px solid #2C5164; border-radius:2px; padding:10px 12px; }
+.formula-row .fname {
+  font-size:11px; text-transform:uppercase; letter-spacing:.06em;
+  color:#8FADBA; font-weight:600; margin-bottom:4px;
+}
+.formula-row .fexpr { font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:#EAF1F4; }
+.disclaimer { font-size:11.5px; color:#B7C9D2; border-top:1px solid #2C5164; padding-top:12px; line-height:1.5; }
+.disclaimer strong { color:#F2C185; }
+
 /* ── TABLE SECTION ──────────────────────────── */
 .tbl-filters {
-  display:flex; flex-wrap:wrap; gap:12px;
-  align-items:center; padding:12px 18px;
-  background:var(--chdr); border-bottom:1px solid var(--brdl);
+  display:flex; flex-wrap:wrap; gap:8px;
+  align-items:center; padding:0 0 14px;
 }
 .flt-group { display:flex; align-items:center; gap:6px; }
 .flt-label {
@@ -400,22 +501,21 @@ body {
 }
 .pill-row { display:flex; gap:4px; flex-wrap:wrap; }
 .pill {
-  padding:3px 9px; border-radius:11px;
-  border:1px solid var(--brd); background:transparent;
-  color:var(--tmid); font-size:11px; cursor:pointer; transition:all .15s;
+  padding:5px 12px; border-radius:20px;
+  border:1px solid var(--brd); background:#fff;
+  color:var(--tmid); font-size:12px; font-weight:500; cursor:pointer; transition:all .15s;
 }
 .pill:hover  { border-color:var(--accent); color:var(--accent); }
-.pill.active { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+.pill.active { background:var(--primary); border-color:var(--primary); color:#fff; font-weight:600; }
 .tbl-search {
-  margin-left:auto; padding:6px 10px; border-radius:6px;
+  margin-left:auto; padding:7px 12px; border-radius:20px;
   border:1px solid var(--brd); background:#fff;
-  font-size:12px; outline:none; width:180px;
+  font-size:12.5px; outline:none; width:220px; font-family:'IBM Plex Sans',sans-serif;
 }
 .tbl-search:focus { border-color:var(--accent); }
 
 .fbar {
-  padding:7px 18px; font-size:11.5px; color:var(--tmid);
-  border-bottom:1px solid var(--brdl); background:var(--card);
+  padding:7px 0; font-size:11.5px; color:var(--tmid);
   display:flex; align-items:center; gap:8px; flex-wrap:wrap;
 }
 .fbar strong { color:var(--primary); }
@@ -424,44 +524,54 @@ body {
   padding:1px 7px; border-radius:9px; font-size:10.5px; font-weight:600;
 }
 
-.tbl-wrap { overflow-x:auto; max-height:400px; overflow-y:auto; }
+.tbl-wrap {
+  overflow-x:auto; max-height:460px; overflow-y:auto;
+  background:var(--card); border:1px solid var(--brdl); border-radius:3px;
+}
 .tbl-wrap::-webkit-scrollbar { height:4px; width:4px; }
 .tbl-wrap::-webkit-scrollbar-thumb { background:var(--brd); }
-table { width:100%; border-collapse:collapse; font-size:12px; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
 thead th {
   position:sticky; top:0; z-index:2;
-  background:var(--chdr); padding:9px 13px;
-  text-align:left; font-size:10px; font-weight:700;
-  text-transform:uppercase; letter-spacing:.5px; color:var(--tmid);
-  border-bottom:2px solid var(--brd); cursor:pointer; white-space:nowrap;
+  background:var(--chdr); padding:10px 14px;
+  text-align:left; font-size:11px; font-weight:600;
+  text-transform:uppercase; letter-spacing:.05em; color:var(--tlt);
+  border-bottom:1px solid var(--brdl); cursor:pointer; white-space:nowrap;
   user-select:none;
 }
 thead th:hover { color:var(--accent); }
 .si { font-size:9px; margin-left:2px; color:var(--tlt); }
 tbody tr { border-bottom:1px solid var(--brdl); transition:background .1s; cursor:pointer; }
-tbody tr:hover { background:#F2E8DA; }
-tbody td { padding:8px 13px; white-space:nowrap; }
+tbody tr:hover { background:var(--chdr); }
+tbody td { padding:9px 14px; white-space:nowrap; font-family:'IBM Plex Mono',monospace; }
+tbody td:first-child { font-family:'IBM Plex Sans',sans-serif; }
 .badge-cls {
-  display:inline-block; padding:2px 8px; border-radius:10px;
-  font-size:10px; font-weight:700; text-transform:uppercase;
+  font-family:'IBM Plex Mono',monospace;
+  display:inline-block; padding:2px 7px; border-radius:2px;
+  font-size:11px; font-weight:600;
+  background:var(--chdr); color:var(--primary);
 }
-.bc-A { background:#3D2008; color:#fff; }
-.bc-B { background:#C98B50; color:#fff; }
-.bc-C { background:#E8CFA8; color:#5A4030; }
+.bc-A, .bc-B, .bc-C { background:var(--chdr); color:var(--primary); }
 .tbl-foot {
-  padding:9px 18px; display:flex; align-items:center;
-  justify-content:space-between; border-top:1px solid var(--brdl);
+  padding:9px 0 0; display:flex; align-items:center;
+  justify-content:space-between;
   font-size:12px; color:var(--tmid);
 }
 .pgn { display:flex; gap:5px; align-items:center; }
 .pbtn {
-  padding:3px 9px; border-radius:5px;
+  padding:3px 9px; border-radius:3px;
   border:1px solid var(--brd); background:var(--bg);
   color:var(--tmid); font-size:12px; cursor:pointer;
 }
 .pbtn:hover  { border-color:var(--accent); color:var(--accent); }
-.pbtn.active { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+.pbtn.active { background:var(--primary); border-color:var(--primary); color:#fff; font-weight:600; }
 .pbtn:disabled { opacity:.4; cursor:default; }
+
+/* ── FOOTER ─────────────────────────────────── */
+footer.status {
+  font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--tlt);
+  padding:10px 28px; border-top:1px solid var(--brdl); background:var(--card);
+}
 """
 
     # ── JS ────────────────────────────────────────────────
@@ -554,7 +664,7 @@ function showResult(p) {{
   // Header color by ABC
   const hdr = document.getElementById("result-header");
   const abc = (p.ABC||"").toUpperCase();
-  hdr.style.background = abc==="A" ? "#3D2008" : abc==="B" ? "#C98B50" : "#A0743E";
+  hdr.style.background = "transparent";
 
   renderLeadTime(p);
 }}
@@ -1061,6 +1171,30 @@ function copyCalcRow() {
   navigator.clipboard.writeText(row).catch(() => {});
 }
 
+// ── TABS (new top-level Lookup / ABC-XYZ / Browse nav) ─────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('view-' + btn.dataset.view).classList.add('active');
+  });
+});
+
+// ── METHODOLOGY / FORMULAS PANEL ────────────────────────────
+function toggleSpecPlate() {
+  document.getElementById("specToggle").classList.toggle("open");
+  document.getElementById("specPlate").classList.toggle("open");
+}
+
+// ── TOPBAR CLOCK ─────────────────────────────────────────────
+function tickClock() {
+  const el = document.getElementById("clock");
+  if (el) el.textContent = new Date().toLocaleString("en-US", {hour:"2-digit", minute:"2-digit"});
+}
+tickClock();
+setInterval(tickClock, 30000);
+
 // ── INIT ─────────────────────────────────────────────────
 buildMatrix();
 buildDatalist();
@@ -1094,6 +1228,8 @@ renderCalcLog();
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>Stocking Model — Etnyre</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>{CSS}</style>
 </head>
 <body>
@@ -1101,86 +1237,95 @@ renderCalcLog();
 <!-- TOPBAR -->
 <header class="topbar">
   <div class="tb-left">
-    <div class="tb-logo">ETNYRE</div>
-    <div>
-      <div class="tb-title">Stocking Model</div>
-    </div>
+    <span class="tb-logo">ETNYRE</span>
+    <span class="tb-title">Stocking Model — Part Lookup</span>
+    <span class="tb-sub">Purchasing &amp; Inventory Analytics</span>
   </div>
   <div class="tb-right">
-    <div>{N:,} parts &nbsp;·&nbsp; Generated {now}</div>
+    <span>{N:,} PARTS</span>
+    <span>SOURCE: EPICOR KINETIC</span>
+    <span id="clock"></span>
   </div>
 </header>
 
+<!-- NAV TABS -->
+<nav class="tabs">
+  <button class="tab-btn active" data-view="lookup">Part Lookup</button>
+  <button class="tab-btn" data-view="abc">ABC / XYZ Overview</button>
+  <button class="tab-btn" data-view="browse">Browse All Parts</button>
+</nav>
+
 <div class="page">
 
-  <!-- 1. ABC/XYZ MATRIX -->
-  <div>
-    <div class="sec-label">ABC / XYZ Classification</div>
-    <div class="card">
-      <div class="mx-wrap">
-        <div class="mx-grid" id="mxgrid"></div>
-        <div style="margin-top:10px;font-size:10px;color:var(--tlt);">
-          Each cell shows part count and cumulative spend &nbsp;·&nbsp; Darker = higher inventory priority
-        </div>
+  <!-- ============ LOOKUP VIEW ============ -->
+  <section class="view active" id="view-lookup">
+    <div class="page-head">
+      <h2>Look up a part or model a hypothetical</h2>
+      <p>Enter a part number to pull its pipeline values automatically, or switch to Calculator to test demand, lead time, or cost assumptions before they're loaded into the pipeline.</p>
+    </div>
+
+    <div class="card-hdr" style="display:flex;align-items:center;justify-content:space-between;border-radius:3px;border:1px solid var(--brdl);">
+      <span>Enter a Part Number</span>
+      <div class="mode-toggle">
+        <button class="mode-btn active" id="mode-btn-lookup" onclick="setMode('lookup')">Lookup</button>
+        <button class="mode-btn" id="mode-btn-calc" onclick="setMode('calc')">Calculator</button>
       </div>
     </div>
-  </div>
 
-  <!-- 2. PART LOOKUP -->
-  <div>
-    <div class="sec-label">Part Lookup</div>
-    <div class="card">
-      <div class="card-hdr" style="display:flex;align-items:center;justify-content:space-between;">
-        <span>Enter a Part Number</span>
-        <div class="mode-toggle">
-          <button class="mode-btn active" id="mode-btn-lookup" onclick="setMode('lookup')">Lookup</button>
-          <button class="mode-btn" id="mode-btn-calc" onclick="setMode('calc')">Calculator</button>
-        </div>
-      </div>
-      <div class="lookup-body" id="lookup-panel">
-        <div class="lookup-input-row">
-          <input class="lookup-input" id="lookup-input" type="text"
-            list="part-list" placeholder="Type or paste a part number…"
-            oninput="lookupPart(this.value)" autocomplete="off">
-          <datalist id="part-list"></datalist>
-          <button class="lookup-clear" onclick="clearLookup()">✕ Clear</button>
+    <!-- LOOKUP MODE -->
+    <div class="lookup-body" id="lookup-panel">
+      <div class="lookup-grid">
+        <!-- INPUT PANEL -->
+        <div class="panel">
+          <div class="panel-head">Part Number</div>
+          <div class="panel-body">
+            <label class="field-label" for="lookup-input">Part number</label>
+            <div class="lookup-input-row">
+              <input class="lookup-input" id="lookup-input" type="text"
+                list="part-list" placeholder="Type or paste a part number…"
+                oninput="lookupPart(this.value)" autocomplete="off">
+              <datalist id="part-list"></datalist>
+              <button class="lookup-clear" onclick="clearLookup()">✕ Clear</button>
+            </div>
+            <div class="no-result" id="no-result">No part found with that number.</div>
+          </div>
         </div>
 
-        <div class="no-result" id="no-result">No part found with that number.</div>
-
+        <!-- OUTPUT -->
         <div class="result-card" id="lookup-result">
           <div class="result-header" id="result-header">
             <span class="result-partnum" id="res-partnum"></span>
             <span class="result-class-badge" id="res-class"></span>
+            <span class="result-policy-badge" id="res-policy" style="margin-left:auto;"></span>
           </div>
           <div class="lt-warning" id="lt-warning">
             ⚠ No lead time on file for this part — Site Minimum, EOQ, and Site Maximum below are not reliable. Enter a corrected lead time to fix this permanently.
           </div>
-          <div class="result-rows">
-            <div class="result-row">
-              <div class="result-lbl">Forecasted Demand</div>
-              <div class="result-val"><span id="res-fd"></span><span class="result-unit">units / month</span></div>
+          <div class="metric-grid">
+            <div class="metric-card">
+              <div class="label">Forecasted Demand</div>
+              <span class="value" id="res-fd">—</span><span class="unit">units / month</span>
+              <div class="def">Simple average — daily demand × 30. A check value, not the moving-average/Holt-Winters model the pipeline actually orders against.</div>
             </div>
-            <div class="result-row">
-              <div class="result-lbl">Site Minimum</div>
-              <div class="result-val"><span id="res-sitemin"></span><span class="result-unit">units</span></div>
+            <div class="metric-card">
+              <div class="label">Site Minimum</div>
+              <span class="value" id="res-sitemin">—</span><span class="unit">units</span>
+              <div class="def">Buffer stock held to cover demand variation during lead time.</div>
             </div>
-            <div class="result-row">
-              <div class="result-lbl">Eco. Order Qty (EOQ)</div>
-              <div class="result-val"><span id="res-eoq"></span><span class="result-unit">units per order</span></div>
+            <div class="metric-card">
+              <div class="label">EOQ</div>
+              <span class="value" id="res-eoq">—</span><span class="unit">units / order</span>
+              <div class="def">Order quantity that minimizes ordering + holding cost together.</div>
             </div>
-            <div class="result-row">
-              <div class="result-lbl">Site Maximum</div>
-              <div class="result-val"><span id="res-sitemax"></span><span class="result-unit">units</span></div>
+            <div class="metric-card">
+              <div class="label">Site Maximum</div>
+              <span class="value" id="res-sitemax">—</span><span class="unit">units</span>
+              <div class="def">Ceiling stock level — Site Minimum + EOQ, adjusted for turns.</div>
             </div>
-            <div class="result-row">
-              <div class="result-lbl">Lead Time</div>
-              <div class="result-val"><span id="res-lt"></span><span class="result-unit">days</span><span class="lt-indicator" id="res-lt-indicator"></span></div>
-            </div>
-            <div class="result-row">
-              <div class="result-lbl">Policy</div>
-              <div class="result-val"><span id="res-policy" class="result-policy-badge"></span></div>
-            </div>
+          </div>
+          <div class="lt-row">
+            <span class="lt-lbl">Lead Time</span>
+            <span class="result-val"><span id="res-lt"></span><span class="result-unit">days</span><span class="lt-indicator" id="res-lt-indicator"></span></span>
           </div>
           <div class="lt-edit-block">
             <div class="lt-edit-row">
@@ -1197,151 +1342,228 @@ renderCalcLog();
             <div class="calc-note lt-save-status" id="lt-save-status"></div>
           </div>
         </div>
-
       </div>
-
-      <!-- CALCULATOR MODE -->
-      <div class="calc-body" id="calc-panel">
-        <div class="calc-grid">
-          <div class="calc-field">
-            <label for="c-partnum">Part number (optional — autofills pipeline values below if it matches)</label>
-            <input type="text" id="c-partnum" list="part-list" placeholder="e.g. 6605173" oninput="calcAutofillFromPart(this.value)" autocomplete="off">
-            <span class="calc-note" id="c-match-status">No part selected — fields below are unset example placeholders, not real data.</span>
-          </div>
-          <div class="calc-field">
-            <label for="c-abc">ABC class (looks up Z automatically)</label>
-            <select id="c-abc">
-              <option value="">—</option><option value="A">A</option><option value="B">B</option><option value="C">C</option>
-            </select>
-            <span class="calc-note" id="c-zval">Select an ABC class to look up Z</span>
-          </div>
-          <div class="calc-field">
-            <label for="c-avgdaily">Avg daily demand (units/day)</label>
-            <input type="number" id="c-avgdaily" step="any" placeholder="e.g. 0.5">
-          </div>
-          <div class="calc-field">
-            <label for="c-stddaily">Std dev of daily demand (units/day)</label>
-            <input type="number" id="c-stddaily" step="any" placeholder="e.g. 0.3">
-          </div>
-          <div class="calc-field">
-            <label for="c-leadtime">Lead time (days)</label>
-            <input type="number" id="c-leadtime" step="any" placeholder="e.g. 30">
-          </div>
-          <div class="calc-field">
-            <label for="c-unitcost">Unit cost ($)</label>
-            <input type="number" id="c-unitcost" step="any" placeholder="e.g. 120">
-          </div>
-          <div class="calc-field">
-            <label for="c-ordercost">Ordering cost per PO ($)</label>
-            <input type="number" id="c-ordercost" step="any" placeholder="e.g. 50">
-          </div>
-          <div class="calc-field">
-            <label for="c-holdrate">Holding cost rate (% of unit cost / year)</label>
-            <input type="number" id="c-holdrate" step="any" placeholder="e.g. 25">
-          </div>
-        </div>
-
-        <div class="calc-results">
-          <div class="calc-card">
-            <div class="cc-lbl">Forecasted demand</div>
-            <div class="cc-val" id="c-out-fd">—</div><span class="cc-unit">units/mo</span>
-          </div>
-          <div class="calc-card">
-            <div class="cc-lbl">Site Minimum</div>
-            <div class="cc-val" id="c-out-sitemin">—</div><span class="cc-unit">units</span>
-            <div class="calc-note">SiteMin = ROUNDUP(Z × σ × √LT, 0)</div>
-          </div>
-          <div class="calc-card">
-            <div class="cc-lbl">EOQ</div>
-            <div class="cc-val" id="c-out-eoq">—</div><span class="cc-unit">units/order</span>
-            <div class="calc-note">EOQ = ROUNDUP(√(2×FixedPOCost×AnnualDemand / (HoldingCost% × AccountingValue)), 0)</div>
-          </div>
-          <div class="calc-card">
-            <div class="cc-lbl">Site Maximum</div>
-            <div class="cc-val" id="c-out-sitemax">—</div><span class="cc-unit">units</span>
-            <div class="calc-note">SiteMax = EOQ+SiteMin−1 if EOQ≤AnnualDemand, else (AvgDailyDemand×WorkingDays)/DesiredTurns</div>
-          </div>
-        </div>
-
-        <div>
-          <span class="calc-policy" id="c-out-policy">Select ABC + XYZ</span>
-          <select id="c-xyz" class="calc-xyz-select">
-            <option value="">XYZ —</option><option value="X">X</option><option value="Y">Y</option><option value="Z">Z</option>
-          </select>
-        </div>
-        <p class="calc-note">Forecasted demand here is a simple avg daily demand × 30 — a check value, not the moving-average/Holt-Winters model the pipeline uses. A large gap from the pipeline's number is itself a useful signal.</p>
-
-        <div>
-          <div class="compare-toggle" id="compare-toggle" onclick="toggleCompare()">
-            <span id="compare-arrow">▸</span> Compare against pipeline values for this part
-          </div>
-          <div class="compare-body" id="compare-body">
-            <div class="calc-grid" style="margin-top:10px;">
-              <div class="calc-field"><label for="c-pfd">Pipeline forecast</label><input type="number" id="c-pfd" step="any" placeholder="from dashboard"></div>
-              <div class="calc-field"><label for="c-psitemin">Pipeline Site Minimum</label><input type="number" id="c-psitemin" step="any" placeholder="from dashboard"></div>
-              <div class="calc-field"><label for="c-peoq">Pipeline EOQ</label><input type="number" id="c-peoq" step="any" placeholder="from dashboard"></div>
-              <div class="calc-field"><label for="c-psitemax">Pipeline Site Maximum</label><input type="number" id="c-psitemax" step="any" placeholder="from dashboard"></div>
-            </div>
-            <div id="delta-table" style="margin-top:8px;"></div>
-            <p class="calc-note">Green = within 5%. Amber = 5–20% off. Red = more than 20% off — usually means the demand input feeding the pipeline differs from what's entered here.</p>
-          </div>
-        </div>
-
-        <div class="calc-actions">
-          <button class="calc-btn calc-btn-primary" onclick="saveCalcCheck()">Save this check</button>
-          <button class="calc-btn calc-btn-secondary" onclick="copyCalcRow()">Copy row for Excel</button>
-        </div>
-
-        <div>
-          <div class="calc-section-lbl">Saved checks</div>
-          <div id="calc-log"><div class="calc-log-empty">No checks saved yet.</div></div>
-        </div>
-      </div>
-
     </div>
-  </div>
 
-  <!-- 3. BROWSE TABLE -->
-  <div>
-    <div class="sec-label">Browse All Parts</div>
-    <div class="card">
-      <!-- Filters -->
-      <div class="tbl-filters">
-        <div class="flt-group">
-          <span class="flt-label">ABC</span>
-          <div class="pill-row">{abc_pills}</div>
+    <!-- CALCULATOR MODE -->
+    <div class="calc-body" id="calc-panel">
+      <div class="lookup-grid">
+        <!-- INPUT PANEL -->
+        <div class="panel">
+          <div class="panel-head">Calculator Inputs</div>
+          <div class="panel-body">
+            <div class="calc-grid">
+              <div class="calc-field">
+                <label for="c-partnum">Part number (optional — autofills pipeline values below if it matches)</label>
+                <input type="text" id="c-partnum" list="part-list" placeholder="e.g. 6605173" oninput="calcAutofillFromPart(this.value)" autocomplete="off">
+                <span class="calc-note" id="c-match-status">No part selected — fields below are unset example placeholders, not real data.</span>
+              </div>
+              <div class="calc-field">
+                <label for="c-abc">ABC class (looks up Z automatically)</label>
+                <select id="c-abc">
+                  <option value="">—</option><option value="A">A</option><option value="B">B</option><option value="C">C</option>
+                </select>
+                <span class="calc-note" id="c-zval">Select an ABC class to look up Z</span>
+              </div>
+              <div class="calc-field">
+                <label for="c-avgdaily">Avg daily demand (units/day)</label>
+                <input type="number" id="c-avgdaily" step="any" placeholder="e.g. 0.5">
+              </div>
+              <div class="calc-field">
+                <label for="c-stddaily">Std dev of daily demand (units/day)</label>
+                <input type="number" id="c-stddaily" step="any" placeholder="e.g. 0.3">
+              </div>
+              <div class="calc-field">
+                <label for="c-leadtime">Lead time (days)</label>
+                <input type="number" id="c-leadtime" step="any" placeholder="e.g. 30">
+              </div>
+              <div class="calc-field">
+                <label for="c-unitcost">Unit cost ($)</label>
+                <input type="number" id="c-unitcost" step="any" placeholder="e.g. 120">
+              </div>
+              <div class="calc-field">
+                <label for="c-ordercost">Ordering cost per PO ($)</label>
+                <input type="number" id="c-ordercost" step="any" placeholder="e.g. 50">
+              </div>
+              <div class="calc-field">
+                <label for="c-holdrate">Holding cost rate (% of unit cost / year)</label>
+                <input type="number" id="c-holdrate" step="any" placeholder="e.g. 25">
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="flt-group">
-          <span class="flt-label">XYZ</span>
-          <div class="pill-row">{xyz_pills}</div>
+
+        <!-- OUTPUT -->
+        <div>
+          <div class="calc-results">
+            <div class="calc-card">
+              <div class="cc-lbl">Forecasted demand</div>
+              <div class="cc-val" id="c-out-fd">—</div><span class="cc-unit">units/mo</span>
+              <div class="calc-note">Forecast = AvgDailyDemand × 30 — a check value, not the pipeline's Holt-Winters model.</div>
+            </div>
+            <div class="calc-card">
+              <div class="cc-lbl">Site Minimum</div>
+              <div class="cc-val" id="c-out-sitemin">—</div><span class="cc-unit">units</span>
+              <div class="calc-note">SiteMin = ROUNDUP(Z × σ × √LT, 0)</div>
+            </div>
+            <div class="calc-card">
+              <div class="cc-lbl">EOQ</div>
+              <div class="cc-val" id="c-out-eoq">—</div><span class="cc-unit">units/order</span>
+              <div class="calc-note">EOQ = ROUNDUP(√(2×FixedPOCost×AnnualDemand / (HoldingCost% × AccountingValue)), 0)</div>
+            </div>
+            <div class="calc-card">
+              <div class="cc-lbl">Site Maximum</div>
+              <div class="cc-val" id="c-out-sitemax">—</div><span class="cc-unit">units</span>
+              <div class="calc-note">SiteMax = EOQ+SiteMin−1 if EOQ≤AnnualDemand, else (AvgDailyDemand×WorkingDays)/DesiredTurns</div>
+            </div>
+          </div>
+
+          <div style="margin:12px 0;">
+            <span class="calc-policy" id="c-out-policy">Select ABC + XYZ</span>
+            <select id="c-xyz" class="calc-xyz-select">
+              <option value="">XYZ —</option><option value="X">X</option><option value="Y">Y</option><option value="Z">Z</option>
+            </select>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head" style="cursor:pointer;" id="compare-toggle" onclick="toggleCompare()">
+              <span id="compare-arrow">▸</span> Compare against pipeline values for this part
+            </div>
+            <div class="compare-body" id="compare-body">
+              <div class="panel-body" style="padding-top:12px;">
+                <div class="calc-grid" style="grid-template-columns:repeat(2,1fr);">
+                  <div class="calc-field"><label for="c-pfd">Pipeline forecast</label><input type="number" id="c-pfd" step="any" placeholder="from dashboard"></div>
+                  <div class="calc-field"><label for="c-psitemin">Pipeline Site Minimum</label><input type="number" id="c-psitemin" step="any" placeholder="from dashboard"></div>
+                  <div class="calc-field"><label for="c-peoq">Pipeline EOQ</label><input type="number" id="c-peoq" step="any" placeholder="from dashboard"></div>
+                  <div class="calc-field"><label for="c-psitemax">Pipeline Site Maximum</label><input type="number" id="c-psitemax" step="any" placeholder="from dashboard"></div>
+                </div>
+                <div id="delta-table" style="margin-top:8px;"></div>
+                <div class="def-strip">
+                  <div class="def-item"><b>Green — within 5%</b>Calculator and pipeline agree; no action needed.</div>
+                  <div class="def-item"><b>Amber — 5–20% off</b>Worth a glance if you're about to place a PO.</div>
+                  <div class="def-item"><b>Red — 20%+ off</b>Usually means the demand input feeding the pipeline differs from what's entered here.</div>
+                  <div class="def-item"><b>Not a live edit</b>This check doesn't change the pipeline. Use "Save this check" to log it for review.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="calc-actions" style="margin-top:14px;">
+            <button class="calc-btn calc-btn-primary" onclick="saveCalcCheck()">Save this check</button>
+            <button class="calc-btn calc-btn-secondary" onclick="copyCalcRow()">Copy row for Excel</button>
+          </div>
+
+          <div style="margin-top:14px;">
+            <div class="calc-section-lbl">Saved checks</div>
+            <div id="calc-log"><div class="calc-log-empty">No checks saved yet.</div></div>
+          </div>
         </div>
-        <div class="flt-group">
-          <span class="flt-label">Policy</span>
-          <div class="pill-row">{policy_pills}</div>
-        </div>
-        <input class="tbl-search" id="tbl-search" type="text"
-          placeholder="Search part number…" oninput="onTblSearch(this.value)">
       </div>
-      <!-- Filter status -->
-      <div class="fbar">
-        Showing <strong id="showing">{N:,}</strong> of <strong>{N:,}</strong> parts
-        <span id="atags"></span>
+    </div>
+
+    <!-- METHODOLOGY / FORMULAS -->
+    <button class="spec-toggle" id="specToggle" onclick="toggleSpecPlate()">
+      <span>How the forecast is calculated — formulas &amp; disclaimers</span>
+      <span class="chev">▾</span>
+    </button>
+    <div class="spec-plate" id="specPlate">
+      <h4>Methodology</h4>
+      <p class="lede">The pipeline forecasts demand with a moving-average / Holt-Winters exponential smoothing model fit on each part's order history. The calculator above uses a simpler average-daily-demand × 30 estimate as a fast, transparent check — it will not match the pipeline exactly, and a large gap is itself informative rather than an error.</p>
+      <div class="formula-grid">
+        <div class="formula-row">
+          <div class="fname">Site Minimum</div>
+          <div class="fexpr">SiteMin = ROUNDUP(Z × σ × √LT, 0)</div>
+        </div>
+        <div class="formula-row">
+          <div class="fname">Economic Order Qty (EOQ)</div>
+          <div class="fexpr">EOQ = ROUNDUP(√(2×FixedPOCost×AnnualDemand ÷ (HoldingCost% × AccountingValue)), 0)</div>
+        </div>
+        <div class="formula-row">
+          <div class="fname">Site Maximum</div>
+          <div class="fexpr">SiteMax = EOQ + SiteMin − 1 if EOQ ≤ AnnualDemand, else (AvgDailyDemand × WorkingDays) ÷ DesiredTurns</div>
+        </div>
+        <div class="formula-row">
+          <div class="fname">Forecasted Demand (check value)</div>
+          <div class="fexpr">Forecast = AvgDailyDemand × 30</div>
+        </div>
+      </div>
+      <div class="disclaimer">
+        <strong>Disclaimers:</strong> Z (the service-level factor) is looked up by ABC class only — 2.05 / 1.64 / 1.28 for A / B / C (98% / 95% / 90% service level) — not by XYZ class; a part can be volatile and still low-value. A Lead Time of 0 days means Epicor has no lead time on file for that part, not that it ships same-day — Site Minimum, EOQ, and Site Maximum are understated until it's corrected (see the warning above and "Save Correction"). These formulas assume independent, roughly normal demand; thin-tailed or lumpy demand (common in Z-class parts) will understate the true minimum. This calculator is a sanity check for buyers, not a replacement for the pipeline — don't hand-key its output into Epicor.
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ABC/XYZ VIEW ============ -->
+  <section class="view" id="view-abc">
+    <div class="page-head">
+      <h2>ABC / XYZ classification</h2>
+      <p>Each cell shows part count and cumulative spend for that segment. Darker shading = higher inventory priority. A = highest spend, X = most predictable demand.</p>
+    </div>
+    <div class="card">
+      <div class="mx-wrap">
+        <div class="mx-grid" id="mxgrid"></div>
+      </div>
+    </div>
+    <div class="def-strip">
+      <div class="def-item"><b>A / B / C</b>Spend tier — A parts are the top cumulative spend (typically ~80/20 Pareto cut).</div>
+      <div class="def-item"><b>X / Y / Z</b>Demand volatility — X is steady and predictable, Z is erratic or intermittent.</div>
+      <div class="def-item"><b>Priority reading</b>AX needs the tightest control; CZ is high in count but low enough in spend/predictability to often warrant manual judgment instead of automation.</div>
+      <div class="def-item"><b>Cell shading</b>Darker = higher inventory priority, independent of part count.</div>
+    </div>
+  </section>
+
+  <!-- ============ BROWSE VIEW ============ -->
+  <section class="view" id="view-browse">
+    <div class="page-head">
+      <h2>Browse all parts</h2>
+      <p>{N:,} parts from the current pipeline run. Filter by class or policy, or search by part number.</p>
+    </div>
+    <div class="card">
+      <div class="panel-body" style="padding-bottom:0;">
+        <!-- Filters -->
+        <div class="tbl-filters">
+          <div class="flt-group">
+            <span class="flt-label">ABC</span>
+            <div class="pill-row">{abc_pills}</div>
+          </div>
+          <div class="flt-group">
+            <span class="flt-label">XYZ</span>
+            <div class="pill-row">{xyz_pills}</div>
+          </div>
+          <div class="flt-group">
+            <span class="flt-label">Policy</span>
+            <div class="pill-row">{policy_pills}</div>
+          </div>
+          <input class="tbl-search" id="tbl-search" type="text"
+            placeholder="Search part number…" oninput="onTblSearch(this.value)">
+        </div>
+        <!-- Filter status -->
+        <div class="fbar">
+          Showing <strong id="showing">{N:,}</strong> of <strong>{N:,}</strong> parts
+          <span id="atags"></span>
+        </div>
       </div>
       <!-- Table -->
       <div class="tbl-wrap">
         <table><thead id="thead"></thead><tbody id="tbody"></tbody></table>
       </div>
-      <div class="tbl-foot">
-        <span id="tbl-range" style="color:var(--tlt)"></span>
-        <div style="display:flex;align-items:center;gap:14px">
-          <span id="tbl-cnt" style="color:var(--tlt)"></span>
-          <div class="pgn" id="pgn"></div>
+      <div class="panel-body" style="padding-top:0;">
+        <div class="tbl-foot">
+          <span id="tbl-range" style="color:var(--tlt)"></span>
+          <div style="display:flex;align-items:center;gap:14px">
+            <span id="tbl-cnt" style="color:var(--tlt)"></span>
+            <div class="pgn" id="pgn"></div>
+          </div>
         </div>
       </div>
     </div>
-  </div>
+  </section>
 
 </div><!-- /page -->
+
+<footer class="status">
+  Pipeline last refreshed {now} · scripts 03–07 · {N:,} parts loaded
+</footer>
 
 <script>{JS}</script>
 </body>
