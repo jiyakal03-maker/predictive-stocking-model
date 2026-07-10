@@ -1,6 +1,7 @@
 # Ignore confidential company data
 *.xlsx
 *.xls
+spend_clean.csv
 
 # Python cache
 __pycache__/
